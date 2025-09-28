@@ -1,0 +1,9 @@
+services:
+  fiap-bff-signup:
+    build: .
+    container_name: fiap-bff-signup
+    env_file:
+      - .env
+    ports:
+      - "8005:8010"
+    restart: unless-stopped
