@@ -2,8 +2,29 @@ services:
   fiap-bff-signup:
     build: .
     container_name: fiap-bff-signup
-    env_file:
-      - .env
+#    env_file:
+#      - .env
     ports:
       - "8005:8010"
     restart: unless-stopped
+    environment:
+      - APP_PORT=8010
+
+      # Keycloak Admin (Client Credentials)
+      - KEYCLOAK_BASE_URL=http://172.22.0.1:8080
+      - KEYCLOAK_REALM=fiap-realm
+      - KEYCLOAK_CLIENT_ID=fiap-bff-signup
+      - KEYCLOAK_CLIENT_SECRET=iO9itYkAdcShk07MXESmTjoNT5YgYaSh
+      - BUYERS_SERVICE_URL=http://localhost:8002
+
+      # Roles padrão para o novo usuário
+      - DEFAULT_REALM_ROLES=buyers-read,buyers-write
+
+      # Buyers API
+      - BUYERS_BASE_URL=http://172.22.0.1:8002
+
+      # HTTP tunables
+      - HTTP_TIMEOUT_SECS=10
+      - RETRIES=3
+      - RETRY_BACKOFF_FACTOR=0.5
+
