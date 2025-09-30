@@ -21,7 +21,10 @@ class KeycloakAdminClient:
             h["Authorization"] = f"Bearer {token}"
         return h
 
-    @retry(stop=stop_after_attempt(settings.RETRIES), wait=wait_exponential_jitter(initial=settings.RETRY_BACKOFF_FACTOR))
+    @retry(
+        stop=stop_after_attempt(settings.RETRIES),
+        wait=wait_exponential_jitter(initial=settings.RETRY_BACKOFF_FACTOR),
+    )
     def _token(self) -> str:
         url = f"{self.base}/realms/{self.realm}/protocol/openid-connect/token"
         data = {
@@ -34,20 +37,31 @@ class KeycloakAdminClient:
             resp.raise_for_status()
             return resp.json()["access_token"]
 
-    @retry(stop=stop_after_attempt(settings.RETRIES), wait=wait_exponential_jitter(initial=settings.RETRY_BACKOFF_FACTOR))
-    def create_user(self, email: str, full_name: str, enabled: bool = True) -> str:
+    @retry(
+        stop=stop_after_attempt(settings.RETRIES),
+        wait=wait_exponential_jitter(initial=settings.RETRY_BACKOFF_FACTOR),
+    )
+    def create_user(self, email: str, full_name: str, password: str, enabled: bool = True) -> str:
         token = self._token()
+
+        # Divide o nome em firstName e lastName
+        parts = full_name.strip().split(" ", 1)
+        first_name = parts[0]
+        last_name = parts[1] if len(parts) > 1 else parts[0]
+
         url = f"{self.base}/admin/realms/{self.realm}/users"
         payload = {
             "username": email,
             "email": email,
             "enabled": enabled,
-            "emailVerified": False,
-            "firstName": full_name,
+            "emailVerified": True,
+            "firstName": first_name,
+            "lastName": last_name,
+            "requiredActions": []
         }
+
         with httpx.Client(timeout=self.timeout) as c:
             r = c.post(url, json=payload, headers=self._headers(token))
-
             if r.status_code == 201:
                 log.info("User created in Keycloak: %s", email)
             elif r.status_code == 409:
@@ -55,14 +69,24 @@ class KeycloakAdminClient:
             else:
                 r.raise_for_status()
 
-            # Resolve user_id sempre (novo ou já existente)
-            user_id = self.find_user_id_by_username(email, token=token)
-            if not user_id:
-                raise RuntimeError("Could not resolve Keycloak user id")
+            # Busca o usuário recém-criado/existente
+            user = self.find_user_by_username(email, token=token)
+            if not user:
+                raise RuntimeError("Could not resolve Keycloak user")
+
+            # 🔑 Pega o ID correto (esse é o mesmo do 'sub' do JWT)
+            user_id = user["id"]
+
+            # Sempre garante a senha
+            self.set_password(user_id, password, temporary=False)
+
             return user_id
 
-    @retry(stop=stop_after_attempt(settings.RETRIES), wait=wait_exponential_jitter(initial=settings.RETRY_BACKOFF_FACTOR))
-    def find_user_id_by_username(self, username: str, token: str | None = None) -> str | None:
+    @retry(
+        stop=stop_after_attempt(settings.RETRIES),
+        wait=wait_exponential_jitter(initial=settings.RETRY_BACKOFF_FACTOR),
+    )
+    def find_user_by_username(self, username: str, token: str | None = None) -> dict[str, Any] | None:
         tok = token or self._token()
         url = f"{self.base}/admin/realms/{self.realm}/users"
         params = {"username": username, "exact": "true"}
@@ -71,10 +95,13 @@ class KeycloakAdminClient:
             r.raise_for_status()
             arr = r.json()
             if arr:
-                return arr[0]["id"]
+                return arr[0]
             return None
 
-    @retry(stop=stop_after_attempt(settings.RETRIES), wait=wait_exponential_jitter(initial=settings.RETRY_BACKOFF_FACTOR))
+    @retry(
+        stop=stop_after_attempt(settings.RETRIES),
+        wait=wait_exponential_jitter(initial=settings.RETRY_BACKOFF_FACTOR),
+    )
     def set_password(self, user_id: str, password: str, temporary: bool = False):
         token = self._token()
         url = f"{self.base}/admin/realms/{self.realm}/users/{user_id}/reset-password"
@@ -93,7 +120,10 @@ class KeycloakAdminClient:
             r.raise_for_status()
             return r.json()
 
-    @retry(stop=stop_after_attempt(settings.RETRIES), wait=wait_exponential_jitter(initial=settings.RETRY_BACKOFF_FACTOR))
+    @retry(
+        stop=stop_after_attempt(settings.RETRIES),
+        wait=wait_exponential_jitter(initial=settings.RETRY_BACKOFF_FACTOR),
+    )
     def assign_realm_roles(self, user_id: str, role_names: list[str]):
         token = self._token()
         roles = [self._get_realm_role(rn, token) for rn in role_names]
